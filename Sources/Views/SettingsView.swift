@@ -43,6 +43,8 @@ struct GeneralSettingsView: View {
 
             Section("Notifications") {
                 Toggle("Show notifications for new review requests", isOn: $appState.settings.showNotifications)
+                Toggle("Use a louder, more noticeable sound", isOn: $appState.settings.loudNotificationSound)
+                    .disabled(!appState.settings.showNotifications)
             }
 
         }

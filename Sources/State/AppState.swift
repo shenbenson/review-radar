@@ -153,7 +153,7 @@ final class AppState {
 
             pullRequests = prs
             lastUpdated = Date()
-            notificationService.processNewPRs(filteredPRs, notificationsEnabled: settings.showNotifications)
+            notificationService.processNewPRs(filteredPRs, notificationsEnabled: settings.showNotifications, loudSound: settings.loudNotificationSound)
         } catch let appError as AppError {
             error = appError
         } catch {

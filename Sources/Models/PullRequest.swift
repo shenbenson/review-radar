@@ -17,6 +17,12 @@ struct PullRequest: Identifiable, Equatable, Sendable {
 
     var authorIsBot: Bool { author.login.hasSuffix("[bot]") }
 
+    // GitHub serves any account's avatar at github.com/<login>.png
+    var authorAvatarURL: URL? {
+        guard !authorIsBot else { return nil }
+        return URL(string: "https://github.com/\(author.login).png?size=128")
+    }
+
     struct Author: Codable, Equatable, Sendable, Hashable {
         let login: String
     }

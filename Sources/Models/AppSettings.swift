@@ -5,6 +5,7 @@ struct AppSettings: Codable, Sendable, Equatable {
     var maxPRs: Int = 100
     var launchAtLogin: Bool = false
     var showNotifications: Bool = true
+    var loudNotificationSound: Bool = false
     var excludeDrafts: Bool = false
     var botAllowList: [String: Bool] = [:]
     var teamFilters: [String: Bool] = [:]
