@@ -1,12 +1,22 @@
+import AppKit
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - General Settings
 
 struct GeneralSettingsView: View {
     @Bindable var appState: AppState
 
+    @State private var showingSoundPicker = false
+    @State private var previewSound: NSSound?
+
     private let intervalOptions = [1, 2, 5, 10, 15]
+
+    private var soundName: String {
+        let path = appState.settings.customSoundPath
+        return path.isEmpty ? "Default" : (path as NSString).lastPathComponent
+    }
 
     var body: some View {
         Form {
@@ -43,15 +53,52 @@ struct GeneralSettingsView: View {
 
             Section("Notifications") {
                 Toggle("Show notifications for new review requests", isOn: $appState.settings.showNotifications)
-                Toggle("Use a louder, more noticeable sound", isOn: $appState.settings.loudNotificationSound)
-                    .disabled(!appState.settings.showNotifications)
+
+                HStack {
+                    Text("Sound")
+                    Spacer()
+                    Text(soundName)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if !appState.settings.customSoundPath.isEmpty {
+                        Button {
+                            playPreview()
+                        } label: {
+                            Image(systemName: "play.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Preview")
+                    }
+                    Button("Choose…") { showingSoundPicker = true }
+                    if !appState.settings.customSoundPath.isEmpty {
+                        Button("Reset") { appState.clearCustomSound() }
+                    }
+                }
+                .disabled(!appState.settings.showNotifications)
             }
 
         }
         .formStyle(.grouped)
+        .fileImporter(
+            isPresented: $showingSoundPicker,
+            allowedContentTypes: [.audio]
+        ) { result in
+            if case let .success(url) = result {
+                appState.importCustomSound(from: url)
+            }
+        }
         .onChange(of: appState.settings.refreshIntervalMinutes) { _, _ in
             appState.restartPolling()
         }
+    }
+
+    private func playPreview() {
+        let path = appState.settings.customSoundPath
+        guard let sound = NSSound(contentsOf: URL(fileURLWithPath: path), byReference: true) else { return }
+        sound.volume = 1.0
+        previewSound = sound
+        sound.play()
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

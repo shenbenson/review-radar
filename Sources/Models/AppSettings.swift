@@ -5,7 +5,8 @@ struct AppSettings: Codable, Sendable, Equatable {
     var maxPRs: Int = 100
     var launchAtLogin: Bool = false
     var showNotifications: Bool = true
-    var loudNotificationSound: Bool = false
+    // Path to a user-chosen sound file; empty means the default system sound.
+    var customSoundPath: String = ""
     var excludeDrafts: Bool = false
     var botAllowList: [String: Bool] = [:]
     var teamFilters: [String: Bool] = [:]
@@ -35,6 +36,7 @@ struct AppSettings: Codable, Sendable, Equatable {
 @MainActor
 final class SettingsManager {
     private let fileURL: URL
+    private let soundsDir: URL
     private var saveTask: Task<Void, Never>?
 
     init() {
@@ -42,6 +44,27 @@ final class SettingsManager {
         let dir = appSupport.appendingPathComponent("ReviewRadar", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("settings.json")
+        soundsDir = dir.appendingPathComponent("sounds", isDirectory: true)
+    }
+
+    /// Copies a chosen sound file into our config folder so it survives the
+    /// original being moved or deleted. Returns the path of the local copy.
+    func importSound(from sourceURL: URL) -> String? {
+        let fm = FileManager.default
+        // Single active sound: clear any previous copies first.
+        try? fm.removeItem(at: soundsDir)
+        do {
+            try fm.createDirectory(at: soundsDir, withIntermediateDirectories: true)
+            let dest = soundsDir.appendingPathComponent(sourceURL.lastPathComponent)
+            try fm.copyItem(at: sourceURL, to: dest)
+            return dest.path
+        } catch {
+            return nil
+        }
+    }
+
+    func clearSound() {
+        try? FileManager.default.removeItem(at: soundsDir)
     }
 
     func load() -> AppSettings {

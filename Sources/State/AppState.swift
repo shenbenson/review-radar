@@ -153,7 +153,7 @@ final class AppState {
 
             pullRequests = prs
             lastUpdated = Date()
-            notificationService.processNewPRs(filteredPRs, notificationsEnabled: settings.showNotifications, loudSound: settings.loudNotificationSound)
+            notificationService.processNewPRs(filteredPRs, notificationsEnabled: settings.showNotifications, customSoundPath: settings.customSoundPath)
         } catch let appError as AppError {
             error = appError
         } catch {
@@ -188,6 +188,21 @@ final class AppState {
         if let url = URL(string: pr.url) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - Notification Sound
+
+    func importCustomSound(from url: URL) {
+        let needsScope = url.startAccessingSecurityScopedResource()
+        defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+        if let path = settingsManager.importSound(from: url) {
+            settings.customSoundPath = path
+        }
+    }
+
+    func clearCustomSound() {
+        settingsManager.clearSound()
+        settings.customSoundPath = ""
     }
 
 }

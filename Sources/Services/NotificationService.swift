@@ -6,6 +6,8 @@ import UserNotifications
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate, Sendable {
     private var seenPRIDs: Set<String> = []
     private var isFirstFetch = true
+    // Retains sounds while they play so they aren't deallocated mid-playback.
+    private var activeSounds: [NSSound] = []
 
     func requestPermission() {
         let center = UNUserNotificationCenter.current()
@@ -13,7 +15,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate, Sen
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    func processNewPRs(_ prs: [PullRequest], notificationsEnabled: Bool, loudSound: Bool) {
+    func processNewPRs(_ prs: [PullRequest], notificationsEnabled: Bool, customSoundPath: String) {
         let currentIDs = Set(prs.map(\.id))
 
         if isFirstFetch {
@@ -29,18 +31,21 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate, Sen
 
         let newIDs = currentIDs.subtracting(seenPRIDs)
         for pr in prs where newIDs.contains(pr.id) {
-            sendNotification(for: pr, loudSound: loudSound)
+            sendNotification(for: pr, customSoundPath: customSoundPath)
         }
         seenPRIDs = currentIDs
     }
 
-    private func sendNotification(for pr: PullRequest, loudSound: Bool) {
+    private func sendNotification(for pr: PullRequest, customSoundPath: String) {
+        let hasCustomSound = !customSoundPath.isEmpty
+            && FileManager.default.fileExists(atPath: customSoundPath)
+
         let content = UNMutableNotificationContent()
         content.title = "New Review Request"
         content.body = "\(pr.author.login) requested your review on \(pr.repository.nameWithOwner)#\(pr.number): \(pr.title)"
-        // A loud, full-volume NSSound is played separately below; silence the
-        // built-in sound in that case so it isn't doubled at notification volume.
-        content.sound = loudSound ? nil : .default
+        // The custom file is played at full volume below; silence the built-in
+        // sound in that case so it isn't doubled.
+        content.sound = hasCustomSound ? nil : .default
         content.userInfo = ["url": pr.url]
 
         Task {
@@ -49,7 +54,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate, Sen
             }
             let request = UNNotificationRequest(identifier: pr.id, content: content, trigger: nil)
             try? await UNUserNotificationCenter.current().add(request)
-            if loudSound { Self.playLoudSound() }
+            if hasCustomSound { playSound(atPath: customSoundPath) }
         }
     }
 
@@ -67,11 +72,13 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate, Sen
         }
     }
 
-    /// Plays an attention-grabbing system sound at full output volume, bypassing
-    /// the (often quiet) system notification volume.
-    private static func playLoudSound() {
-        guard let sound = NSSound(named: "Sosumi") else { return }
+    /// Plays the user's chosen sound file at full output volume, bypassing the
+    /// (often quiet) system notification volume.
+    private func playSound(atPath path: String) {
+        activeSounds.removeAll { !$0.isPlaying }
+        guard let sound = NSSound(contentsOf: URL(fileURLWithPath: path), byReference: true) else { return }
         sound.volume = 1.0
+        activeSounds.append(sound)
         sound.play()
     }
 
