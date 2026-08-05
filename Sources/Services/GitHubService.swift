@@ -113,6 +113,7 @@ actor GitHubService {
     }
 
     /// Fetch CI rollup in small GraphQL batches (avoids search-query 502s).
+    /// Failed batches mark PRs as `.unavailable` (not `.unknown` / "No checks").
     private func attachCIStatus(to prs: [PullRequest]) async -> [PullRequest] {
         guard !prs.isEmpty else { return prs }
         let chunkSize = 10
@@ -142,7 +143,10 @@ actor GitHubService {
             guard let stdout = try? await graphql(query: query, variables: [:]),
                   let data = try? JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any],
                   let root = data["data"] as? [String: Any]
-            else { continue }
+            else {
+                for pr in chunk { statuses[pr.id] = .unavailable }
+                continue
+            }
 
             for (i, pr) in chunk.enumerated() {
                 guard let repo = root["p\(i)"] as? [String: Any],
@@ -150,7 +154,10 @@ actor GitHubService {
                       let commits = pull["commits"] as? [String: Any],
                       let nodes = commits["nodes"] as? [[String: Any]],
                       let commit = nodes.last?["commit"] as? [String: Any]
-                else { continue }
+                else {
+                    statuses[pr.id] = .unavailable
+                    continue
+                }
                 let state = (commit["statusCheckRollup"] as? [String: Any])?["state"] as? String
                 statuses[pr.id] = mapCIState(state)
             }
@@ -158,9 +165,7 @@ actor GitHubService {
 
         return prs.map { pr in
             var copy = pr
-            if let status = statuses[pr.id] {
-                copy.ciStatus = status
-            }
+            copy.ciStatus = statuses[pr.id] ?? .unavailable
             return copy
         }
     }
@@ -387,10 +392,12 @@ private struct GraphQLPullRequest: Decodable, Sendable {
                 if teamName == nil {
                     teamName = reviewer.name
                     if let combined = reviewer.combinedSlug, !combined.isEmpty {
-                        teamFilterKey = combined
+                        teamFilterKey = TeamFilterKey.normalize(combined)
                     } else if let slug = reviewer.slug {
-                        let owner = repository.owner?.login ?? repository.nameWithOwner?.components(separatedBy: "/").first ?? ""
-                        teamFilterKey = "\(owner)/\(slug)"
+                        let owner = repository.owner?.login
+                            ?? repository.nameWithOwner?.components(separatedBy: "/").first
+                            ?? ""
+                        teamFilterKey = TeamFilterKey.make(org: owner, slug: slug)
                     }
                 }
                 // Prefer a team the user belongs to for filter key / name
@@ -399,8 +406,15 @@ private struct GraphQLPullRequest: Decodable, Sendable {
                         ?? repository.nameWithOwner?.components(separatedBy: "/").first
                         ?? ""
                     if let match = userTeams.first(where: {
-                        $0.slug == slug && $0.organization.login.caseInsensitiveCompare(owner) == .orderedSame
+                        $0.slug.caseInsensitiveCompare(slug) == .orderedSame
+                            && $0.organization.login.caseInsensitiveCompare(owner) == .orderedSame
                     }) {
+                        teamName = match.name
+                        teamFilterKey = match.filterKey
+                    }
+                } else if let combined = reviewer.combinedSlug {
+                    let nk = TeamFilterKey.normalize(combined)
+                    if let match = userTeams.first(where: { $0.filterKey == nk }) {
                         teamName = match.name
                         teamFilterKey = match.filterKey
                     }

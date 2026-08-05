@@ -105,6 +105,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
                 guard current == .success, previous != .success else { continue }
                 // Skip unknown→success on first sight of a brand-new PR mid-session
                 // if we never had a prior reading — still notify if we knew a non-green state.
+                // Ignore unknown/unavailable → success (no reliable prior non-green state).
                 guard previous == .pending || previous == .failure || previous == .error || previous == .expected
                 else { continue }
 

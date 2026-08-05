@@ -5,6 +5,7 @@ struct PopoverView: View {
     @Bindable var appState: AppState
     var onOpenSettings: () -> Void
     @State private var collapsedSections: Set<String> = []
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,9 +17,12 @@ struct PopoverView: View {
             }
             tabBar
             Divider()
+            searchRow
+            Divider()
             toolbarRow
             Divider()
             contentView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             footerView
         }
@@ -77,19 +81,36 @@ struct PopoverView: View {
     }
 
     private func bannerText(_ error: AppError) -> String {
-        switch error {
-        case .rateLimited(let date):
-            let s = max(0, Int(date.timeIntervalSinceNow))
-            return "Rate limited · retries in \(s)s. Showing last results."
-        case .networkError:
-            return "Network error. Showing last results."
-        case .ghNotAuthenticated:
-            return "GitHub auth expired. Showing last results."
-        case .ghNotInstalled:
-            return "gh CLI missing. Showing last results."
-        case .unknown(let msg):
-            return msg.isEmpty ? "Refresh failed. Showing last results." : msg
+        let queueHint: String = {
+            switch (appState.reviewQueueFailed, appState.authoredQueueFailed) {
+            case (true, true): return "Both queues failed."
+            case (true, false): return "Couldn't refresh To Review."
+            case (false, true): return "Couldn't refresh My PRs."
+            case (false, false): return ""
+            }
+        }()
+
+        let detail: String = {
+            switch error {
+            case .rateLimited(let date):
+                let s = max(0, Int(date.timeIntervalSinceNow))
+                return "Rate limited · retries in \(s)s."
+            case .networkError:
+                return "Network error."
+            case .ghNotAuthenticated:
+                return "GitHub auth expired."
+            case .ghNotInstalled:
+                return "gh CLI missing."
+            case .unknown(let msg):
+                return msg.isEmpty ? "Refresh failed." : msg
+            }
+        }()
+
+        let showing = "Showing last results."
+        if queueHint.isEmpty {
+            return "\(detail) \(showing)"
         }
+        return "\(queueHint) \(detail) \(showing)"
     }
 
     // MARK: - Tabs
@@ -126,6 +147,35 @@ struct PopoverView: View {
             .foregroundStyle(selected ? Color.primary : Color.secondary)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Search
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Search title, repo, author…", text: $appState.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .focused($searchFocused)
+                .disableAutocorrection(true)
+            Button {
+                appState.searchQuery = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(appState.hasActiveSearch ? 1 : 0)
+            .disabled(!appState.hasActiveSearch)
+            .frame(width: 16, height: 16)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(height: 32)
     }
 
     // MARK: - Toolbar
@@ -167,9 +217,11 @@ struct PopoverView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .frame(minWidth: 64, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .frame(height: 32)
     }
 
     // MARK: - Content
@@ -212,15 +264,49 @@ struct PopoverView: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 10) {
-            Image(systemName: appState.settings.popoverTab == .toReview ? "checkmark.circle" : "tray")
+        let tab = appState.settings.popoverTab
+        let queueFailed = tab == .toReview ? appState.reviewQueueFailed : appState.authoredQueueFailed
+        let rawEmpty = tab == .toReview ? appState.reviewPullRequests.isEmpty : appState.authoredPullRequests.isEmpty
+
+        let icon: String
+        let title: String
+        let subtitle: String
+
+        if queueFailed && rawEmpty {
+            icon = "exclamationmark.triangle"
+            title = tab == .toReview ? "Couldn't refresh reviews" : "Couldn't refresh My PRs"
+            subtitle = "Check the banner above or retry."
+        } else if appState.hasActiveSearch {
+            icon = "magnifyingglass"
+            title = "No matches"
+            subtitle = "Nothing matches “\(appState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”"
+        } else if queueFailed {
+            icon = "exclamationmark.triangle"
+            title = tab == .toReview ? "Couldn't refresh reviews" : "Couldn't refresh My PRs"
+            subtitle = "Showing last results may be incomplete."
+        } else {
+            icon = tab == .toReview ? "checkmark.circle" : "tray"
+            title = tab == .toReview ? "No pending reviews" : "No open PRs"
+            subtitle = tab == .toReview ? "You're all caught up" : "Nothing authored by you right now"
+        }
+
+        return VStack(spacing: 10) {
+            Image(systemName: icon)
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(.secondary)
-            Text(appState.settings.popoverTab == .toReview ? "No pending reviews" : "No open PRs")
+            Text(title)
                 .font(.headline)
-            Text(appState.settings.popoverTab == .toReview ? "You're all caught up" : "Nothing authored by you right now")
+            Text(subtitle)
                 .foregroundStyle(.secondary)
                 .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            if queueFailed {
+                Button("Retry") {
+                    Task { await appState.refresh() }
+                }
+                .controlSize(.small)
+            }
         }
     }
 
@@ -231,9 +317,14 @@ struct PopoverView: View {
                     Section {
                         if !collapsedSections.contains(group.repo) {
                             ForEach(group.prs) { pr in
-                                PRRowView(pr: pr, style: appState.settings.popoverTab) {
-                                    appState.openPR(pr)
-                                }
+                                PRRowView(
+                                    pr: pr,
+                                    style: appState.settings.popoverTab,
+                                    onTap: { appState.openPR(pr) },
+                                    onSnooze: { appState.snoozePR(pr, duration: $0) },
+                                    onMute: { appState.mutePR(pr) },
+                                    onIgnoreRepo: { appState.ignoreRepo(pr.repository.nameWithOwner) }
+                                )
                                 if pr.id != group.prs.last?.id {
                                     Divider()
                                 }

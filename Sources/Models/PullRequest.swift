@@ -87,6 +87,7 @@ enum ReviewDecision: String, Sendable, Codable, CaseIterable {
 
 enum CIStatus: String, Sendable, Codable, CaseIterable {
     case unknown
+    case unavailable
     case pending
     case success
     case failure
@@ -96,6 +97,7 @@ enum CIStatus: String, Sendable, Codable, CaseIterable {
     var label: String {
         switch self {
         case .unknown: "No checks"
+        case .unavailable: "CI unknown"
         case .pending: "Pending"
         case .success: "Passing"
         case .failure: "Failing"
@@ -107,6 +109,7 @@ enum CIStatus: String, Sendable, Codable, CaseIterable {
     var systemImage: String {
         switch self {
         case .unknown: "minus.circle"
+        case .unavailable: "questionmark.circle"
         case .pending: "clock"
         case .success: "checkmark.circle.fill"
         case .failure: "xmark.circle.fill"
@@ -117,7 +120,7 @@ enum CIStatus: String, Sendable, Codable, CaseIterable {
 
     var color: Color {
         switch self {
-        case .unknown: .secondary
+        case .unknown, .unavailable: .secondary
         case .pending, .expected: .yellow
         case .success: .green
         case .failure, .error: .red
@@ -175,7 +178,18 @@ struct GitHubTeam: Sendable, Codable, Identifiable, Hashable {
         let login: String
     }
 
-    var filterKey: String { "\(organization.login)/\(slug)" }
+    /// Normalized lowercase `org/slug` for stable filter lookups.
+    var filterKey: String { TeamFilterKey.normalize("\(organization.login)/\(slug)") }
+}
+
+enum TeamFilterKey {
+    static func normalize(_ key: String) -> String {
+        key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    static func make(org: String, slug: String) -> String {
+        normalize("\(org)/\(slug)")
+    }
 }
 
 enum AppError: Error, Equatable, Sendable {

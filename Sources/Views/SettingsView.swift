@@ -63,11 +63,11 @@ struct GeneralSettingsView: View {
 
             Section("Notifications") {
                 Toggle("New review requests", isOn: $appState.settings.showNotifications)
+                Toggle("My PR CI turned green", isOn: $appState.settings.notifyMyPRCIGreen)
+                    .disabled(!appState.settings.showMyPRs)
                 Toggle("My PR approved / changes requested", isOn: $appState.settings.notifyMyPRReviews)
                     .disabled(!appState.settings.showMyPRs)
                 Toggle("My PR merged", isOn: $appState.settings.notifyMyPRMerged)
-                    .disabled(!appState.settings.showMyPRs)
-                Toggle("My PR CI turned green", isOn: $appState.settings.notifyMyPRCIGreen)
                     .disabled(!appState.settings.showMyPRs)
 
                 HStack {
@@ -148,7 +148,8 @@ struct FiltersSettingsView: View {
     var body: some View {
         Form {
             Section("Pull Requests") {
-                Toggle("Exclude draft PRs", isOn: $appState.settings.excludeDrafts)
+                Toggle("Exclude drafts in To Review", isOn: $appState.settings.excludeDraftsToReview)
+                Toggle("Exclude drafts in My PRs", isOn: $appState.settings.excludeDraftsMyPRs)
                 Toggle("Exclude bot PRs", isOn: Binding(
                     get: { !appState.settings.showBotPRs },
                     set: { appState.settings.showBotPRs = !$0 }
@@ -176,10 +177,40 @@ struct FiltersSettingsView: View {
                         .foregroundStyle(.secondary)
                     ForEach(appState.teams) { team in
                         Toggle("\(team.organization.login)/\(team.name)", isOn: Binding(
-                            get: { appState.settings.teamFilters[team.filterKey] ?? true },
-                            set: { appState.settings.teamFilters[team.filterKey] = $0 }
+                            get: { appState.settings.isTeamFilterEnabled(team.filterKey) },
+                            set: { appState.settings.setTeamFilter(team.filterKey, enabled: $0) }
                         ))
                     }
+                }
+            }
+
+            if !appState.activeSnoozes.isEmpty {
+                Section {
+                    Text("Hidden from both queues until the time expires (or forever if muted).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(appState.activeSnoozes, id: \.id) { item in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.id)
+                                    .font(.system(.body, design: .monospaced))
+                                    .lineLimit(1)
+                                Text(snoozeCaption(until: item.until))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Unmute") {
+                                appState.unsnoozePR(id: item.id)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                    Button("Clear all") {
+                        appState.clearAllSnoozes()
+                    }
+                } header: {
+                    Text("Snoozed / muted PRs")
                 }
             }
 
@@ -223,5 +254,14 @@ struct FiltersSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func snoozeCaption(until: Date) -> String {
+        if until == .distantFuture || until.timeIntervalSinceNow > 50 * 365 * 24 * 60 * 60 {
+            return "Muted"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "Until \(formatter.localizedString(for: until, relativeTo: Date()))"
     }
 }

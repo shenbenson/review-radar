@@ -42,11 +42,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func startObserving() {
         withObservationTracking {
-            _ = appState.pendingCount
-            _ = appState.myPRCount
+            _ = appState.menuBarPendingCount
             _ = appState.error
             _ = appState.bannerError
             _ = appState.isLoading
+            _ = appState.reviewPullRequests
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateIcon()
@@ -57,6 +57,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func updateIcon() {
         guard let button = statusItem.button else { return }
+        let count = appState.menuBarPendingCount
 
         if appState.error != nil && appState.reviewPullRequests.isEmpty {
             button.image = NSImage(
@@ -64,7 +65,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 accessibilityDescription: "Error"
             )
             button.title = ""
-        } else if appState.pendingCount == 0 && !appState.isLoading {
+        } else if count == 0 && !appState.isLoading {
             button.image = NSImage(
                 systemSymbolName: "checkmark.circle",
                 accessibilityDescription: "No pending reviews"
@@ -75,7 +76,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 systemSymbolName: "arrow.triangle.pull",
                 accessibilityDescription: "Pending reviews"
             )
-            let count = appState.pendingCount
             button.title = count > 0 ? "\(count)" : ""
         }
     }

@@ -11,8 +11,12 @@ final class AppState {
     var lastUpdated: Date?
     var error: AppError?
     var bannerError: AppError?
+    /// Which queue(s) failed on the last refresh (for precise empty/banner copy).
+    var reviewQueueFailed = false
+    var authoredQueueFailed = false
     var discoveredBots: Set<String> = []
     var teams: [GitHubTeam] = []
+    var searchQuery = ""
     var settings: AppSettings {
         didSet {
             if settings != oldValue {
@@ -38,25 +42,43 @@ final class AppState {
     // MARK: - Filtered & Grouped
 
     var filteredReviewPRs: [PullRequest] {
-        applyCommonFilters(reviewPullRequests.filter { pr in
-            // Hide PRs you've already approved
-            if pr.reviewStatus == .approved { return false }
-
-            if !settings.showTeamReviews && pr.isTeamReviewRequested && !pr.isDirectReviewRequested {
-                return false
-            }
-
-            if let key = pr.teamFilterKey, let enabled = settings.teamFilters[key], !enabled {
-                // Still show if directly requested
-                if !pr.isDirectReviewRequested { return false }
-            }
-
-            return true
-        })
+        reviewPRsMatching(applySearch: true)
     }
 
     var filteredAuthoredPRs: [PullRequest] {
-        applyCommonFilters(authoredPullRequests)
+        authoredPRsMatching(applySearch: true)
+    }
+
+    /// Counts for tabs (respect search).
+    var pendingCount: Int { filteredReviewPRs.count }
+    var myPRCount: Int { filteredAuthoredPRs.count }
+
+    /// Menu-bar badge — ignores search so typing doesn't resize the status item / move the popover.
+    var menuBarPendingCount: Int { reviewPRsMatching(applySearch: false).count }
+
+    private func reviewPRsMatching(applySearch: Bool) -> [PullRequest] {
+        let base = reviewPullRequests.filter { pr in
+            if settings.excludeDraftsToReview && pr.isDraft { return false }
+            if pr.reviewStatus == .approved { return false }
+            if !settings.showTeamReviews && pr.isTeamReviewRequested && !pr.isDirectReviewRequested {
+                return false
+            }
+            if let key = pr.teamFilterKey, !settings.isTeamFilterEnabled(key) {
+                if !pr.isDirectReviewRequested { return false }
+            }
+            return true
+        }
+        let common = applyCommonFilters(base)
+        return applySearch ? self.applySearch(common) : common
+    }
+
+    private func authoredPRsMatching(applySearch: Bool) -> [PullRequest] {
+        let base = authoredPullRequests.filter { pr in
+            if settings.excludeDraftsMyPRs && pr.isDraft { return false }
+            return true
+        }
+        let common = applyCommonFilters(base)
+        return applySearch ? self.applySearch(common) : common
     }
 
     private func applyCommonFilters(_ prs: [PullRequest]) -> [PullRequest] {
@@ -65,7 +87,7 @@ final class AppState {
         let orgs = settings.orgIncludeList
 
         return prs.filter { pr in
-            if settings.excludeDrafts && pr.isDraft { return false }
+            if settings.isSnoozed(pr.id) { return false }
 
             if !settings.showBotPRs && pr.authorIsBot {
                 if settings.botAllowList[pr.author.login] != true { return false }
@@ -76,6 +98,18 @@ final class AppState {
             if !orgs.isEmpty && !containsCI(orgs, pr.repository.owner) { return false }
 
             return true
+        }
+    }
+
+    private func applySearch(_ prs: [PullRequest]) -> [PullRequest] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return prs }
+        return prs.filter { pr in
+            pr.title.localizedCaseInsensitiveContains(q)
+                || pr.repository.nameWithOwner.localizedCaseInsensitiveContains(q)
+                || pr.author.login.localizedCaseInsensitiveContains(q)
+                || "\(pr.number)".contains(q)
+                || "#\(pr.number)".localizedCaseInsensitiveContains(q)
         }
     }
 
@@ -92,7 +126,6 @@ final class AppState {
     }
 
     private func group(_ prs: [PullRequest]) -> [(repo: String, prs: [PullRequest])] {
-        // Preserve sort within repo when sorting by repo; otherwise keep global sort order in groups
         if settings.sortOption == .repoName {
             let grouped = Dictionary(grouping: prs) { $0.repository.nameWithOwner }
             return grouped.sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
@@ -112,8 +145,17 @@ final class AppState {
         return order.map { (repo: $0, prs: map[$0] ?? []) }
     }
 
-    var pendingCount: Int { filteredReviewPRs.count }
-    var myPRCount: Int { filteredAuthoredPRs.count }
+    var hasActiveSearch: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var activeSnoozes: [(id: String, until: Date)] {
+        let now = Date()
+        return settings.snoozedPRs
+            .filter { $0.value > now }
+            .map { (id: $0.key, until: $0.value) }
+            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+    }
 
     // MARK: - Polling
 
@@ -123,7 +165,6 @@ final class AppState {
         pollTask = Task {
             await refresh()
             while !Task.isCancelled {
-                // Honor rate-limit backoff
                 if let waitUntil = rateLimitWaitUntil {
                     let delay = waitUntil.timeIntervalSinceNow
                     if delay > 0 {
@@ -155,6 +196,9 @@ final class AppState {
         isLoading = !hasData
         if !hasData { error = nil }
         bannerError = nil
+        reviewQueueFailed = false
+        authoredQueueFailed = false
+        settings.pruneExpiredSnoozes()
 
         do {
             let installed = await github.checkGHInstalled()
@@ -174,33 +218,36 @@ final class AppState {
             let limit = settings.maxPRs
             let includeAuthored = settings.showMyPRs
 
-            // Fetch queues independently so one failure doesn't wipe the other.
             var reviews: [PullRequest]?
             var authored: [PullRequest]?
-            var fetchError: AppError?
+            var reviewError: AppError?
+            var authoredError: AppError?
 
             do {
                 reviews = try await github.fetchReviewQueue(limit: limit)
             } catch let appError as AppError {
-                fetchError = appError
+                reviewError = appError
             } catch {
-                fetchError = .unknown(error.localizedDescription)
+                reviewError = .unknown(error.localizedDescription)
             }
 
             if includeAuthored {
                 do {
                     authored = try await github.fetchAuthoredQueue(limit: limit)
                 } catch let appError as AppError {
-                    fetchError = fetchError ?? appError
+                    authoredError = appError
                 } catch {
-                    fetchError = fetchError ?? .unknown(error.localizedDescription)
+                    authoredError = .unknown(error.localizedDescription)
                 }
             } else {
                 authored = []
             }
 
+            reviewQueueFailed = reviews == nil
+            authoredQueueFailed = includeAuthored && authored == nil
+
             if reviews == nil && authored == nil {
-                let err = fetchError ?? .unknown("Failed to fetch pull requests")
+                let err = reviewError ?? authoredError ?? .unknown("Failed to fetch pull requests")
                 if case .rateLimited(let reset) = err {
                     rateLimitWaitUntil = reset
                 }
@@ -218,26 +265,31 @@ final class AppState {
                         }
                     }
                 }
-                reviewPullRequests = reviews
+                reviewPullRequests = mergeCI(previous: reviewPullRequests, incoming: reviews)
             }
 
             if let authored {
-                authoredPullRequests = authored
+                authoredPullRequests = mergeCI(previous: authoredPullRequests, incoming: authored)
             }
 
             let fetchedTeams = await github.fetchUserTeams()
             if !fetchedTeams.isEmpty {
                 teams = fetchedTeams
                 for team in fetchedTeams {
-                    if settings.teamFilters[team.filterKey] == nil {
-                        settings.teamFilters[team.filterKey] = true
+                    if settings.teamFilters[team.filterKey] == nil
+                        && !settings.teamFilters.keys.contains(where: {
+                            TeamFilterKey.normalize($0) == team.filterKey
+                        })
+                    {
+                        settings.setTeamFilter(team.filterKey, enabled: true)
                     }
                 }
             }
 
             lastUpdated = Date()
             error = nil
-            if let fetchError {
+
+            if let fetchError = reviewError ?? authoredError {
                 if case .rateLimited(let reset) = fetchError {
                     rateLimitWaitUntil = reset
                 }
@@ -269,6 +321,20 @@ final class AppState {
         }
 
         finishRefresh()
+    }
+
+    /// Keep last-known CI when a refresh couldn't load checks for that PR.
+    private func mergeCI(previous: [PullRequest], incoming: [PullRequest]) -> [PullRequest] {
+        let oldByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        return incoming.map { pr in
+            guard pr.ciStatus == .unavailable,
+                  let old = oldByID[pr.id],
+                  old.ciStatus != .unavailable
+            else { return pr }
+            var copy = pr
+            copy.ciStatus = old.ciStatus
+            return copy
+        }
     }
 
     private func presentError(_ appError: AppError, hasData: Bool) {
@@ -314,6 +380,22 @@ final class AppState {
         settings.ignoreRepo(nameWithOwner)
     }
 
+    func snoozePR(_ pr: PullRequest, duration: SnoozeDuration) {
+        settings.snoozePR(pr.id, until: duration.deadline())
+    }
+
+    func mutePR(_ pr: PullRequest) {
+        settings.mutePR(pr.id)
+    }
+
+    func unsnoozePR(id: String) {
+        settings.unsnoozePR(id)
+    }
+
+    func clearAllSnoozes() {
+        settings.snoozedPRs = [:]
+    }
+
     // MARK: - Notification Sound
 
     func importCustomSound(from url: URL) {
@@ -327,5 +409,39 @@ final class AppState {
     func clearCustomSound() {
         settingsManager.clearSound()
         settings.customSoundPath = ""
+    }
+
+    func flushSettings() {
+        settingsManager.scheduleSave(settings)
+        settingsManager.flush()
+    }
+}
+
+enum SnoozeDuration: String, CaseIterable, Identifiable {
+    case oneHour
+    case untilTomorrow
+    case oneWeek
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .oneHour: "1 hour"
+        case .untilTomorrow: "Until tomorrow"
+        case .oneWeek: "1 week"
+        }
+    }
+
+    func deadline(from now: Date = Date()) -> Date {
+        switch self {
+        case .oneHour:
+            return now.addingTimeInterval(60 * 60)
+        case .untilTomorrow:
+            let cal = Calendar.current
+            let startOfToday = cal.startOfDay(for: now)
+            return cal.date(byAdding: .day, value: 1, to: startOfToday) ?? now.addingTimeInterval(24 * 60 * 60)
+        case .oneWeek:
+            return now.addingTimeInterval(7 * 24 * 60 * 60)
+        }
     }
 }

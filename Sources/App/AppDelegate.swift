@@ -11,4 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController = StatusBarController(appState: appState, settingsWindowController: settingsWindowController!)
         appState.startPolling()
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        appState.flushSettings()
+    }
 }

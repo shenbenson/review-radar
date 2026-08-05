@@ -4,6 +4,9 @@ struct PRRowView: View {
     let pr: PullRequest
     let style: PopoverTab
     let onTap: () -> Void
+    var onSnooze: ((SnoozeDuration) -> Void)?
+    var onMute: (() -> Void)?
+    var onIgnoreRepo: (() -> Void)?
 
     var body: some View {
         Button(action: onTap) {
@@ -58,6 +61,24 @@ struct PRRowView: View {
         }
         .buttonStyle(.plain)
         .background(HoverBackground())
+        .contextMenu {
+            Button("Open") { onTap() }
+            Divider()
+            Menu("Snooze") {
+                ForEach(SnoozeDuration.allCases) { duration in
+                    Button(duration.label) {
+                        onSnooze?(duration)
+                    }
+                }
+            }
+            Button("Mute") {
+                onMute?()
+            }
+            Divider()
+            Button("Ignore \(pr.repository.nameWithOwner)") {
+                onIgnoreRepo?()
+            }
+        }
     }
 
     private var ageDate: Date {

@@ -21,7 +21,7 @@ targets:
         CFBundleName: ReviewRadar
         CFBundleDisplayName: ReviewRadar
         CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "3"
+        CFBundleVersion: "4"
         CFBundleIconFile: AppIcon
         CFBundleIconName: AppIcon
     settings:
