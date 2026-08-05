@@ -7,6 +7,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let popover: NSPopover
     private let appState: AppState
     private let settingsWindowController: SettingsWindowController
+    private var globalClickMonitor: Any?
+    private var localClickMonitor: Any?
 
     init(appState: AppState, settingsWindowController: SettingsWindowController) {
         self.appState = appState
@@ -19,6 +21,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         popover.contentSize = NSSize(width: 420, height: 560)
         popover.behavior = .transient
         popover.animates = false
+        popover.delegate = self
         popover.contentViewController = NSHostingController(
             rootView: PopoverView(appState: appState, onOpenSettings: { [weak self] in
                 self?.settingsWindowController.showSettings()
@@ -91,18 +94,61 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func togglePopover(_ sender: NSStatusBarButton) {
         if popover.isShown {
-            popover.performClose(sender)
+            closePopover()
         } else {
+            // Do not makeKey() here — that breaks NSPopover.transient outside-click dismiss.
+            // Clicking the search field will make the window key when the user wants to type.
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            // Become key for keyboard input, but don't leave the caret in the search field.
-            if let window = popover.contentViewController?.view.window {
-                window.makeKey()
-                window.makeFirstResponder(popover.contentViewController?.view)
+            installOutsideClickMonitors()
+        }
+    }
+
+    private func closePopover() {
+        removeOutsideClickMonitors()
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+    }
+
+    /// Transient popovers stop auto-closing once they become key (e.g. search focused).
+    /// Global + local monitors restore reliable outside-click dismiss.
+    private func installOutsideClickMonitors() {
+        removeOutsideClickMonitors()
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.closePopover()
             }
+        }
+
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self, self.popover.isShown else { return event }
+            let popoverWindow = self.popover.contentViewController?.view.window
+            // Click in another of our windows (e.g. Settings) or no window → close.
+            if event.window == nil || (event.window !== popoverWindow && event.window !== self.statusItem.button?.window) {
+                self.closePopover()
+            }
+            return event
+        }
+    }
+
+    private func removeOutsideClickMonitors() {
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+            self.localClickMonitor = nil
         }
     }
 
     private func showMenu() {
+        closePopover()
         let menu = NSMenu()
         menu.delegate = self
 
@@ -121,6 +167,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
+        closePopover()
         settingsWindowController.showSettings()
     }
 
@@ -132,5 +179,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         Task { @MainActor [weak self] in
             self?.statusItem.menu = nil
         }
+    }
+}
+
+extension StatusBarController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        removeOutsideClickMonitors()
     }
 }

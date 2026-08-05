@@ -35,8 +35,13 @@ struct PopoverView: View {
 
     private func resignSearchFocus() {
         searchFocused = false
-        if let window = NSApp.keyWindow {
-            window.makeFirstResponder(window.contentView)
+        // Only resign within the popover window — don't promote it to key.
+        if let window = NSApp.windows.first(where: {
+            $0.isVisible && String(describing: type(of: $0)).contains("Popover")
+        }) ?? NSApp.keyWindow {
+            if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
+                window.makeFirstResponder(nil)
+            }
         }
     }
 
