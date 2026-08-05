@@ -94,7 +94,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             popover.performClose(sender)
         } else {
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            // Become key for keyboard input, but don't leave the caret in the search field.
+            if let window = popover.contentViewController?.view.window {
+                window.makeKey()
+                window.makeFirstResponder(popover.contentViewController?.view)
+            }
         }
     }
 

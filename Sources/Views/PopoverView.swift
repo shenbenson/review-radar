@@ -23,11 +23,21 @@ struct PopoverView: View {
             Divider()
             contentView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
             Divider()
             footerView
         }
         .frame(width: 420, height: 560)
         .background(.background)
+        .onAppear { resignSearchFocus() }
+        .background(SearchFocusDismisser(onDismiss: resignSearchFocus))
+    }
+
+    private func resignSearchFocus() {
+        searchFocused = false
+        if let window = NSApp.keyWindow {
+            window.makeFirstResponder(window.contentView)
+        }
     }
 
     // MARK: - Header
@@ -415,5 +425,69 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+}
+
+/// Clears search focus when the user clicks outside any NSText field/view.
+private struct SearchFocusDismisser: NSViewRepresentable {
+    var onDismiss: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.onDismiss = onDismiss
+        context.coordinator.install()
+        return NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onDismiss = onDismiss
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.teardown()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    @MainActor
+    final class Coordinator {
+        var onDismiss: (() -> Void)?
+        private var monitor: Any?
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self else { return event }
+                if self.shouldDismiss(for: event) {
+                    let dismiss = self.onDismiss
+                    DispatchQueue.main.async {
+                        dismiss?()
+                    }
+                }
+                return event
+            }
+        }
+
+        func teardown() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        nonisolated private func shouldDismiss(for event: NSEvent) -> Bool {
+            guard let window = event.window else { return false }
+            let point = event.locationInWindow
+            guard let hit = window.contentView?.hitTest(point) else { return true }
+            return !isTextInput(hit)
+        }
+
+        nonisolated private func isTextInput(_ view: NSView) -> Bool {
+            var current: NSView? = view
+            while let v = current {
+                if v is NSTextField || v is NSTextView { return true }
+                current = v.superview
+            }
+            return false
+        }
     }
 }
