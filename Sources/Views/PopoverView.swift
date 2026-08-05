@@ -36,12 +36,13 @@ struct PopoverView: View {
     private func resignSearchFocus() {
         searchFocused = false
         // Only resign within the popover window — don't promote it to key.
-        if let window = NSApp.windows.first(where: {
+        guard let window = NSApp.windows.first(where: {
             $0.isVisible && String(describing: type(of: $0)).contains("Popover")
-        }) ?? NSApp.keyWindow {
-            if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
-                window.makeFirstResponder(nil)
-            }
+        }) ?? NSApp.keyWindow else { return }
+
+        LazyFocusTextField.resetFocusGate(in: window.contentView)
+        if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
+            window.makeFirstResponder(nil)
         }
     }
 
@@ -171,11 +172,12 @@ struct PopoverView: View {
             Image(systemName: "magnifyingglass")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("Search title, repo, author…", text: $appState.searchQuery)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-                .focused($searchFocused)
-                .disableAutocorrection(true)
+            ClickToFocusTextField(
+                text: $appState.searchQuery,
+                placeholder: "Search title, repo, author…",
+                isFocused: $searchFocused
+            )
+            .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 18)
             Button {
                 appState.searchQuery = ""
             } label: {
@@ -430,6 +432,98 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+}
+
+/// Plain search field that refuses first responder until the user clicks it
+/// (stops the blinking caret when the popover opens).
+private struct ClickToFocusTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var isFocused: FocusState<Bool>.Binding
+
+    func makeNSView(context: Context) -> LazyFocusTextField {
+        let field = LazyFocusTextField()
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        field.placeholderString = placeholder
+        field.delegate = context.coordinator
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: LazyFocusTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        field.placeholderString = placeholder
+        if !isFocused.wrappedValue {
+            field.refuseFocusUntilClick = true
+            if field.window?.firstResponder === field
+                || field.window?.firstResponder === field.currentEditor()
+            {
+                field.window?.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: ClickToFocusTextField
+
+        init(_ parent: ClickToFocusTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            parent.isFocused.wrappedValue = true
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            parent.isFocused.wrappedValue = false
+            (obj.object as? LazyFocusTextField)?.refuseFocusUntilClick = true
+        }
+    }
+}
+
+/// NSTextField that ignores automatic first-responder assignment until clicked.
+private final class LazyFocusTextField: NSTextField {
+    var refuseFocusUntilClick = true
+
+    override var acceptsFirstResponder: Bool {
+        !refuseFocusUntilClick
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard !refuseFocusUntilClick else { return false }
+        return super.becomeFirstResponder()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        refuseFocusUntilClick = false
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    static func resetFocusGate(in root: NSView?) {
+        guard let root else { return }
+        if let field = root as? LazyFocusTextField {
+            field.refuseFocusUntilClick = true
+        }
+        for child in root.subviews {
+            resetFocusGate(in: child)
+        }
     }
 }
 

@@ -97,8 +97,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             closePopover()
         } else {
             // Do not makeKey() here — that breaks NSPopover.transient outside-click dismiss.
-            // Clicking the search field will make the window key when the user wants to type.
+            // Search field uses LazyFocusTextField so it won't steal the caret on open.
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+            if let view = popover.contentViewController?.view,
+               let window = view.window
+            {
+                window.makeFirstResponder(view)
+            }
             installOutsideClickMonitors()
         }
     }
