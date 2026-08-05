@@ -6,19 +6,26 @@ struct FilterChip: View {
 
     var body: some View {
         Button {
-            isOn.toggle()
+            withAnimation(.easeInOut(duration: 0.12)) { isOn.toggle() }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: isOn ? "checkmark" : "")
+                Image(systemName: isOn ? "checkmark" : "circle")
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                 Text(title)
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(isOn ? 0.08 : 0.03), in: Capsule())
-            .foregroundStyle(isOn ? Color.primary : Color.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                isOn ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04),
+                in: Capsule()
+            )
+            .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+            .overlay(
+                Capsule()
+                    .strokeBorder(isOn ? Color.accentColor.opacity(0.25) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }

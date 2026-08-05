@@ -28,17 +28,27 @@ struct GeneralSettingsView: View {
                 }
 
                 HStack {
-                    Text("Max PRs")
+                    Text("Max PRs per queue")
                     Spacer()
                     TextField("", value: $appState.settings.maxPRs, format: .number)
                         .frame(width: 60)
                         .multilineTextAlignment(.trailing)
                         .onSubmit {
-                            appState.settings.maxPRs = max(10, min(200, appState.settings.maxPRs))
+                            appState.settings.maxPRs = max(10, min(100, appState.settings.maxPRs))
                         }
-                    Stepper("", value: $appState.settings.maxPRs, in: 10...200, step: 10)
+                    Stepper("", value: $appState.settings.maxPRs, in: 10...100, step: 10)
                         .labelsHidden()
                 }
+
+                Picker("Default sort", selection: $appState.settings.sortOption) {
+                    ForEach(PRSortOption.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+            }
+
+            Section("Queues") {
+                Toggle("Show My PRs tab", isOn: $appState.settings.showMyPRs)
             }
 
             Section("Startup") {
@@ -52,7 +62,13 @@ struct GeneralSettingsView: View {
             }
 
             Section("Notifications") {
-                Toggle("Show notifications for new review requests", isOn: $appState.settings.showNotifications)
+                Toggle("New review requests", isOn: $appState.settings.showNotifications)
+                Toggle("My PR approved / changes requested", isOn: $appState.settings.notifyMyPRReviews)
+                    .disabled(!appState.settings.showMyPRs)
+                Toggle("My PR merged", isOn: $appState.settings.notifyMyPRMerged)
+                    .disabled(!appState.settings.showMyPRs)
+                Toggle("My PR CI turned green", isOn: $appState.settings.notifyMyPRCIGreen)
+                    .disabled(!appState.settings.showMyPRs)
 
                 HStack {
                     Text("Sound")
@@ -75,9 +91,13 @@ struct GeneralSettingsView: View {
                         Button("Reset") { appState.clearCustomSound() }
                     }
                 }
-                .disabled(!appState.settings.showNotifications)
+                .disabled(
+                    !appState.settings.showNotifications
+                        && !appState.settings.notifyMyPRReviews
+                        && !appState.settings.notifyMyPRMerged
+                        && !appState.settings.notifyMyPRCIGreen
+                )
             }
-
         }
         .formStyle(.grouped)
         .fileImporter(
@@ -90,6 +110,12 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: appState.settings.refreshIntervalMinutes) { _, _ in
             appState.restartPolling()
+        }
+        .onChange(of: appState.settings.showMyPRs) { _, enabled in
+            if !enabled && appState.settings.popoverTab == .myPRs {
+                appState.settings.popoverTab = .toReview
+            }
+            Task { await appState.refresh() }
         }
     }
 
@@ -145,43 +171,55 @@ struct FiltersSettingsView: View {
 
             if !appState.teams.isEmpty {
                 Section("Teams") {
+                    Text("Uncheck a team to hide its review requests (direct requests still show).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     ForEach(appState.teams) { team in
-                        let key = "\(team.organization.login)/\(team.slug)"
                         Toggle("\(team.organization.login)/\(team.name)", isOn: Binding(
-                            get: { appState.settings.teamFilters[key] ?? true },
-                            set: { appState.settings.teamFilters[key] = $0 }
+                            get: { appState.settings.teamFilters[team.filterKey] ?? true },
+                            set: { appState.settings.teamFilters[team.filterKey] = $0 }
                         ))
                     }
                 }
             }
 
-            Section("Repositories") {
+            Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Include repos (one per line)")
+                    Text("owner/repo — one per line. Only these repos are shown (leave empty for all).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextEditor(text: $appState.settings.repoIncludes)
                         .font(.system(.body, design: .monospaced))
-                        .frame(height: 60)
+                        .frame(minHeight: 56)
                 }
+            } header: {
+                Text("Include repositories")
+            }
 
+            Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Exclude repos (one per line)")
+                    Text("owner/repo — one per line. Hidden from both queues. You can also ignore from the popover ⋯ menu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextEditor(text: $appState.settings.repoExcludes)
                         .font(.system(.body, design: .monospaced))
-                        .frame(height: 60)
+                        .frame(minHeight: 72)
                 }
+            } header: {
+                Text("Ignored repositories")
+            }
 
+            Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Include orgs (one per line)")
+                    Text("Organization login — one per line. Only these orgs are shown (leave empty for all).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextEditor(text: $appState.settings.orgIncludes)
                         .font(.system(.body, design: .monospaced))
-                        .frame(height: 60)
+                        .frame(minHeight: 56)
                 }
+            } header: {
+                Text("Include organizations")
             }
         }
         .formStyle(.grouped)

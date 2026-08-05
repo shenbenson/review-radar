@@ -11,6 +11,7 @@
 		231D890D5D462BACE5156F68 /* ReviewRadarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF430D34F3F1C4A51FA433BB /* ReviewRadarApp.swift */; };
 		24F7117EEC859D4F2A2AD29B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDD3919FE25AE33F5FDAFD5 /* SettingsView.swift */; };
 		2819F5C1935AA1A3722A5B7D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1934079C4B957E411F414FA9 /* AppDelegate.swift */; };
+		2CE3AAB3E64C5F81BECE0B37 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = C548F7229AB1D9CFAFD9338E /* AppIcon.icns */; };
 		52D003433ED0524211C20C98 /* ErrorStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D4EF687A28FF1EE1F45A30 /* ErrorStateView.swift */; };
 		7372689AE427C74586627EF4 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57140C61DF6AA7215A17E606 /* NotificationService.swift */; };
 		78E6128D58BF334EEE3CB041 /* PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E25DA118A52EF6A40B4F40D3 /* PullRequest.swift */; };
@@ -21,10 +22,12 @@
 		D2656358C82EAF507E0AEF99 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E71666120D73D4D0CD79EE /* PopoverView.swift */; };
 		DF5D87A0C996D81E30C0EB82 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 049A55D599F0B83B12213E84 /* AppSettings.swift */; };
 		E1C3381178171D62E81EC614 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50CA7EF83D0D29F4BC6EA7F /* AppState.swift */; };
+		E4FDC470974039D5F7DA7E03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04654C796C4C5AB3998C6BE6 /* Assets.xcassets */; };
 		EBE3F63F493767AC9D329081 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1290B70E1522F122612A9B6 /* StatusBarController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		04654C796C4C5AB3998C6BE6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		049A55D599F0B83B12213E84 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		0F28D9F4CA470CDBBFB8D1BD /* FilterChipBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterChipBar.swift; sourceTree = "<group>"; };
 		1934079C4B957E411F414FA9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -38,6 +41,7 @@
 		B43E7DDBDEB0A71ECBDE1C90 /* ProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
 		C2D4EF687A28FF1EE1F45A30 /* ErrorStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorStateView.swift; sourceTree = "<group>"; };
 		C50CA7EF83D0D29F4BC6EA7F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		C548F7229AB1D9CFAFD9338E /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		DB5C00068C81088444D20197 /* PRRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRRowView.swift; sourceTree = "<group>"; };
 		E25DA118A52EF6A40B4F40D3 /* PullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequest.swift; sourceTree = "<group>"; };
 		FF430D34F3F1C4A51FA433BB /* ReviewRadarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewRadarApp.swift; sourceTree = "<group>"; };
@@ -51,6 +55,15 @@
 				FF430D34F3F1C4A51FA433BB /* ReviewRadarApp.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		2CAA410F46CC07ABD78A9D8A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C548F7229AB1D9CFAFD9338E /* AppIcon.icns */,
+				04654C796C4C5AB3998C6BE6 /* Assets.xcassets */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		48A048349364FA9B35DBEB92 /* Models */ = {
@@ -95,6 +108,7 @@
 				1E9F5D752C4151217684E8C7 /* App */,
 				5277A2A942A7FE5C41E8B212 /* Controllers */,
 				48A048349364FA9B35DBEB92 /* Models */,
+				2CAA410F46CC07ABD78A9D8A /* Resources */,
 				6F6EC8C5CF9FA2A2817B4161 /* Services */,
 				636D65DF6408AAFE18A4EADB /* State */,
 				E1416F08B1A53230D67ABED5 /* Views */,
@@ -138,6 +152,8 @@
 			buildConfigurationList = 4B59E67E46D4C488ACD13A5A /* Build configuration list for PBXNativeTarget "ReviewRadar" */;
 			buildPhases = (
 				CD465ED4188493670B32C3B4 /* Sources */,
+				D29E535823B9FCBD54F7259F /* Resources */,
+				DE91E19B99622AC53559DBC9 /* Embed AppIcon.icns */,
 			);
 			buildRules = (
 			);
@@ -179,6 +195,39 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D29E535823B9FCBD54F7259F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2CE3AAB3E64C5F81BECE0B37 /* AppIcon.icns in Resources */,
+				E4FDC470974039D5F7DA7E03 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		DE91E19B99622AC53559DBC9 /* Embed AppIcon.icns */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed AppIcon.icns";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Ensure Notification Center / Finder get a complete multi-res icns\n# (asset catalog compile can drop sizes if slots mis-resolve).\nSRC=\"${SRCROOT}/Sources/Resources/AppIcon.icns\"\nDST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AppIcon.icns\"\nif [ -f \"$SRC\" ]; then\n  cp -f \"$SRC\" \"$DST\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		CD465ED4188493670B32C3B4 /* Sources */ = {

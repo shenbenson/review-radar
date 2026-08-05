@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct PullRequest: Identifiable, Equatable, Sendable {
     var id: String { "\(repository.nameWithOwner)#\(number)" }
@@ -11,20 +12,31 @@ struct PullRequest: Identifiable, Equatable, Sendable {
     let updatedAt: Date
     let url: String
     var reviewStatus: ReviewStatus
+    /// Overall review decision on the PR (useful for authored PRs).
+    var reviewDecision: ReviewDecision
+    var ciStatus: CIStatus
+    var isDirectReviewRequested: Bool
     var isTeamReviewRequested: Bool
     var teamName: String?
     var teamFilterKey: String?
+    var additions: Int
+    var deletions: Int
+    /// Which queue this PR was fetched for.
+    var queue: PRQueue
 
-    var authorIsBot: Bool { author.login.hasSuffix("[bot]") }
+    var authorIsBot: Bool { author.login.hasSuffix("[bot]") || author.isBot }
 
-    // GitHub serves any account's avatar at github.com/<login>.png
     var authorAvatarURL: URL? {
+        if let url = author.avatarUrl, let parsed = URL(string: url) { return parsed }
         guard !authorIsBot else { return nil }
         return URL(string: "https://github.com/\(author.login).png?size=128")
     }
 
     struct Author: Codable, Equatable, Sendable, Hashable {
         let login: String
+        var id: String = ""
+        var avatarUrl: String? = nil
+        var isBot: Bool = false
     }
 
     struct Repository: Codable, Equatable, Sendable, Hashable {
@@ -34,39 +46,123 @@ struct PullRequest: Identifiable, Equatable, Sendable {
     }
 }
 
-enum ReviewStatus: String, Sendable, Codable, CaseIterable {
-    case pending = "REVIEW_REQUIRED"
-    case approved = "APPROVED"
-    case changesRequested = "CHANGES_REQUESTED"
+enum PRQueue: String, Sendable, Codable, CaseIterable {
+    case review
+    case authored
 }
 
-struct SearchPRResult: Codable, Sendable {
-    let number: Int
-    let title: String
-    let author: PullRequest.Author
-    let repository: PullRequest.Repository
-    let isDraft: Bool
-    let createdAt: Date
-    let updatedAt: Date
-    let url: String
+enum ReviewStatus: String, Sendable, Codable, CaseIterable {
+    case pending
+    case approved
+    case changesRequested
+    case commented
+    case dismissed
 
-    func toPullRequest() -> PullRequest {
-        PullRequest(
-            number: number, title: title, author: author,
-            repository: repository, isDraft: isDraft,
-            createdAt: createdAt, updatedAt: updatedAt,
-            url: url, reviewStatus: .pending,
-            isTeamReviewRequested: false, teamName: nil,
-            teamFilterKey: nil
-        )
+    var label: String {
+        switch self {
+        case .pending: "Pending"
+        case .approved: "Approved"
+        case .changesRequested: "Changes"
+        case .commented: "Commented"
+        case .dismissed: "Dismissed"
+        }
     }
 }
 
-struct PRDetails: Sendable {
-    let reviewStatus: ReviewStatus
-    let isTeamReviewRequested: Bool
-    let teamName: String?
-    let teamFilterKey: String?
+enum ReviewDecision: String, Sendable, Codable, CaseIterable {
+    case none
+    case reviewRequired
+    case approved
+    case changesRequested
+
+    var label: String {
+        switch self {
+        case .none: "No reviews"
+        case .reviewRequired: "Review required"
+        case .approved: "Approved"
+        case .changesRequested: "Changes requested"
+        }
+    }
+}
+
+enum CIStatus: String, Sendable, Codable, CaseIterable {
+    case unknown
+    case pending
+    case success
+    case failure
+    case error
+    case expected
+
+    var label: String {
+        switch self {
+        case .unknown: "No checks"
+        case .pending: "Pending"
+        case .success: "Passing"
+        case .failure: "Failing"
+        case .error: "Error"
+        case .expected: "Expected"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .unknown: "minus.circle"
+        case .pending: "clock"
+        case .success: "checkmark.circle.fill"
+        case .failure: "xmark.circle.fill"
+        case .error: "exclamationmark.circle.fill"
+        case .expected: "clock"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .unknown: .secondary
+        case .pending, .expected: .yellow
+        case .success: .green
+        case .failure, .error: .red
+        }
+    }
+}
+
+enum PRSortOption: String, Sendable, Codable, CaseIterable, Identifiable {
+    case updatedNewest
+    case updatedOldest
+    case createdNewest
+    case createdOldest
+    case repoName
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .updatedNewest: "Updated · newest"
+        case .updatedOldest: "Updated · oldest"
+        case .createdNewest: "Created · newest"
+        case .createdOldest: "Created · oldest"
+        case .repoName: "Repository"
+        case .title: "Title"
+        }
+    }
+
+    func sorted(_ prs: [PullRequest]) -> [PullRequest] {
+        switch self {
+        case .updatedNewest: prs.sorted { $0.updatedAt > $1.updatedAt }
+        case .updatedOldest: prs.sorted { $0.updatedAt < $1.updatedAt }
+        case .createdNewest: prs.sorted { $0.createdAt > $1.createdAt }
+        case .createdOldest: prs.sorted { $0.createdAt < $1.createdAt }
+        case .repoName: prs.sorted {
+            if $0.repository.nameWithOwner == $1.repository.nameWithOwner {
+                return $0.number > $1.number
+            }
+            return $0.repository.nameWithOwner.localizedCaseInsensitiveCompare($1.repository.nameWithOwner) == .orderedAscending
+        }
+        case .title: prs.sorted {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+        }
+    }
 }
 
 struct GitHubTeam: Sendable, Codable, Identifiable, Hashable {
@@ -78,24 +174,8 @@ struct GitHubTeam: Sendable, Codable, Identifiable, Hashable {
     struct Organization: Sendable, Codable, Hashable {
         let login: String
     }
-}
 
-struct RequestedReviewersResponse: Codable, Sendable {
-    let users: [ReviewerUser]
-    let teams: [ReviewerTeam]
-
-    struct ReviewerUser: Codable, Sendable {
-        let login: String
-    }
-
-    struct ReviewerTeam: Codable, Sendable {
-        let name: String
-        let slug: String
-    }
-}
-
-struct ReviewResponse: Codable, Sendable {
-    let state: String
+    var filterKey: String { "\(organization.login)/\(slug)" }
 }
 
 enum AppError: Error, Equatable, Sendable {

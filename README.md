@@ -1,15 +1,21 @@
 # ReviewRadar
 
-A macOS menu bar app that surfaces GitHub pull requests awaiting your review.
+A macOS menu bar app that surfaces GitHub pull requests awaiting your review — and tracks **your own PRs**.
 
-It shells out to the [`gh`](https://cli.github.com/) CLI under your existing auth — no separate token setup, no OAuth dance. Polls on a configurable interval, pauses on system sleep, and posts a notification when a new PR shows up.
+It shells out to the [`gh`](https://cli.github.com/) CLI under your existing auth — no separate token setup. Polls on a configurable interval, pauses on system sleep, and posts notifications when something needs attention.
 
-Features:
+## Features
 
-- Menu bar status item with a count of pending reviews
-- Filters: hide drafts, hide bots (with per-bot allowlist), team review allowlist, repo / org include + exclude lists
-- PRs you've already approved are hidden automatically
-- Auto-discovers bots and teams from your live PR list and `gh api /user/teams`
+- **To Review** — PRs where your review is requested (personal and/or team)
+- **My PRs** — open PRs you authored, with overall review decision + CI
+- Menu bar count of pending reviews
+- Draft / Ready, CI rollup, +/− diff, avatars
+- Sort by updated, created, repo, or title
+- Ignore repos from the list (⋯) or Settings
+- Filters: drafts, bots (with allowlist), teams, repo/org include + exclude
+- Hides PRs **you** already approved (`viewerLatestReview`)
+- Notifications: new review requests; your PR approved / changes requested
+- Custom notification sound
 - Settings persist to `~/Library/Application Support/ReviewRadar/settings.json`
 
 ## Requirements
@@ -21,15 +27,11 @@ Features:
 
 ## Build
 
-Regenerate the Xcode project from `project.yml` (only needed after editing `project.yml` or adding files):
-
 ```sh
 xcodegen generate
 ```
 
-### Debug build
-
-Open `ReviewRadar.xcodeproj` in Xcode and run, or:
+### Debug
 
 ```sh
 xcodebuild -project ReviewRadar.xcodeproj \
@@ -38,9 +40,9 @@ xcodebuild -project ReviewRadar.xcodeproj \
   -derivedDataPath .build build
 ```
 
-The app will be at `.build/Build/Products/Debug/ReviewRadar.app`.
+App: `.build/Build/Products/Debug/ReviewRadar.app`
 
-### Release build + install to /Applications
+### Release + install
 
 ```sh
 xcodebuild -project ReviewRadar.xcodeproj \
@@ -53,26 +55,27 @@ cp -R .build/Build/Products/Release/ReviewRadar.app /Applications/
 open /Applications/ReviewRadar.app
 ```
 
-The build is ad-hoc signed (`CODE_SIGN_IDENTITY: -`). On first launch macOS may block it with a Gatekeeper warning — right-click the app in `/Applications` and choose **Open**, then confirm.
+Ad-hoc signed (`CODE_SIGN_IDENTITY: -`). First launch may need right-click → **Open**.
 
 ## Usage
 
-Once launched, ReviewRadar lives in the menu bar (no Dock icon — it's an `LSUIElement` app). The icon shows the count of PRs awaiting your review.
+Lives in the menu bar (`LSUIElement`). Icon shows pending review count.
 
-- **Click the menu bar icon** to open the popover with PRs grouped by repo. Click a row to open the PR in your browser.
-- **Settings** are reachable from the popover. Configure refresh interval, notifications, launch-at-login, draft visibility, bot allowlist, team allowlist, and repo/org filters.
-- **Notifications** fire when a new PR enters your review queue (toggle in Settings; macOS will prompt for permission on first run).
-
-The app polls every N minutes (default 5, configurable). On system sleep it stops polling; on wake it resumes immediately.
+- **Click** — popover with **To Review** / **My PRs** tabs
+- **Sort** — menu in the toolbar
+- **Ignore repo** — ⋯ on a repo section
+- **Settings** — gear or right-click the status item
+- Polls every N minutes (default 5); pauses on sleep, refreshes on wake
 
 ## Project layout
 
 ```
 Sources/
   App/         entry point + AppDelegate
-  Models/      PullRequest, AppSettings, error types
+  Models/      PullRequest, AppSettings, status types
   State/       AppState — polling, filtering, grouping
   Controllers/ status bar + settings window
-  Views/       SwiftUI views (popover, settings, rows, filter chips)
-  Services/    GitHubService (gh wrapper), ProcessRunner, NotificationService
+  Views/       SwiftUI popover, settings, rows
+  Services/    GitHubService (GraphQL via gh), ProcessRunner, NotificationService
+  Resources/   App icon asset catalog
 ```

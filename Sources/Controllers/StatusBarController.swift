@@ -16,7 +16,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         super.init()
 
-        popover.contentSize = NSSize(width: 400, height: 520)
+        popover.contentSize = NSSize(width: 420, height: 560)
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = NSHostingController(
@@ -43,7 +43,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func startObserving() {
         withObservationTracking {
             _ = appState.pendingCount
+            _ = appState.myPRCount
             _ = appState.error
+            _ = appState.bannerError
             _ = appState.isLoading
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -56,7 +58,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func updateIcon() {
         guard let button = statusItem.button else { return }
 
-        if appState.error != nil {
+        if appState.error != nil && appState.reviewPullRequests.isEmpty {
             button.image = NSImage(
                 systemSymbolName: "exclamationmark.triangle.fill",
                 accessibilityDescription: "Error"
@@ -100,7 +102,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
@@ -122,7 +124,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    // NSMenuDelegate
     nonisolated func menuDidClose(_ menu: NSMenu) {
         Task { @MainActor [weak self] in
             self?.statusItem.menu = nil

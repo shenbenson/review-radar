@@ -31,10 +31,16 @@ enum ProcessRunner {
         return env.isEmpty ? ProcessInfo.processInfo.environment : env
     }()
 
-    static func run(executable: String, arguments: [String], environment: [String: String]? = nil) async throws -> ProcessResult {
+    static func run(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]? = nil,
+        stdinData: Data? = nil
+    ) async throws -> ProcessResult {
         let exec = executable
         let args = arguments
         let env = environment
+        let input = stdinData
         return try await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: exec)
@@ -53,7 +59,17 @@ enum ProcessRunner {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
-            try process.run()
+            if let input {
+                let stdinPipe = Pipe()
+                process.standardInput = stdinPipe
+                try process.run()
+                stdinPipe.fileHandleForWriting.write(input)
+                try? stdinPipe.fileHandleForWriting.close()
+            } else {
+                process.standardInput = FileHandle.nullDevice
+                try process.run()
+            }
+
             process.waitUntilExit()
 
             let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
@@ -71,17 +87,12 @@ enum ProcessRunner {
         try await run(executable: "/usr/bin/env", arguments: ["gh"] + arguments)
     }
 
-    static func ghJSON<T: Decodable & Sendable>(_ type: T.Type, _ arguments: String...) async throws -> T {
-        let result = try await run(executable: "/usr/bin/env", arguments: ["gh"] + arguments)
-        guard result.exitCode == 0 else {
-            throw GHError.commandFailed(result.stderr)
-        }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(T.self, from: Data(result.stdout.utf8))
+    /// Run `gh` with a JSON body on stdin (used for GraphQL).
+    static func ghJSONInput(_ arguments: [String], body: Data) async throws -> ProcessResult {
+        try await run(
+            executable: "/usr/bin/env",
+            arguments: ["gh"] + arguments,
+            stdinData: body
+        )
     }
-}
-
-enum GHError: Error, Sendable {
-    case commandFailed(String)
 }

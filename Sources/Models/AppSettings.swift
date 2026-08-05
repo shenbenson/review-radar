@@ -2,10 +2,12 @@ import Foundation
 
 struct AppSettings: Codable, Sendable, Equatable {
     var refreshIntervalMinutes: Int = 5
-    var maxPRs: Int = 100
+    var maxPRs: Int = 50
     var launchAtLogin: Bool = false
     var showNotifications: Bool = true
-    // Path to a user-chosen sound file; empty means the default system sound.
+    var notifyMyPRReviews: Bool = true
+    var notifyMyPRMerged: Bool = true
+    var notifyMyPRCIGreen: Bool = true
     var customSoundPath: String = ""
     var excludeDrafts: Bool = false
     var botAllowList: [String: Bool] = [:]
@@ -15,21 +17,57 @@ struct AppSettings: Codable, Sendable, Equatable {
     var orgIncludes: String = ""
     var showBotPRs: Bool = true
     var showTeamReviews: Bool = true
+    var showMyPRs: Bool = true
+    var sortOption: PRSortOption = .updatedNewest
+    var popoverTab: PopoverTab = .toReview
 
     var refreshInterval: TimeInterval {
         TimeInterval(refreshIntervalMinutes * 60)
     }
 
     var repoIncludeList: [String] {
-        repoIncludes.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        normalizedLines(repoIncludes)
     }
 
     var repoExcludeList: [String] {
-        repoExcludes.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        normalizedLines(repoExcludes)
     }
 
     var orgIncludeList: [String] {
-        orgIncludes.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        normalizedLines(orgIncludes)
+    }
+
+    mutating func ignoreRepo(_ nameWithOwner: String) {
+        let key = nameWithOwner.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        var lines = Set(repoExcludeList.map { $0.lowercased() })
+        guard !lines.contains(key.lowercased()) else { return }
+        if repoExcludes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            repoExcludes = key
+        } else {
+            repoExcludes += "\n" + key
+        }
+        lines.insert(key.lowercased())
+    }
+
+    private func normalizedLines(_ text: String) -> [String] {
+        text.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+enum PopoverTab: String, Sendable, Codable, CaseIterable, Identifiable {
+    case toReview
+    case myPRs
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .toReview: "To Review"
+        case .myPRs: "My PRs"
+        }
     }
 }
 
@@ -47,11 +85,8 @@ final class SettingsManager {
         soundsDir = dir.appendingPathComponent("sounds", isDirectory: true)
     }
 
-    /// Copies a chosen sound file into our config folder so it survives the
-    /// original being moved or deleted. Returns the path of the local copy.
     func importSound(from sourceURL: URL) -> String? {
         let fm = FileManager.default
-        // Single active sound: clear any previous copies first.
         try? fm.removeItem(at: soundsDir)
         do {
             try fm.createDirectory(at: soundsDir, withIntermediateDirectories: true)
