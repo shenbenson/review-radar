@@ -203,16 +203,8 @@ final class AppState {
         settings.pruneExpiredSnoozes()
 
         do {
-            let installed = await github.checkGHInstalled()
-            guard installed else {
-                presentError(.ghNotInstalled, hasData: hasData)
-                finishRefresh()
-                return
-            }
-
-            let authenticated = await github.checkGHAuthenticated()
-            guard authenticated else {
-                presentError(.ghNotAuthenticated, hasData: hasData)
+            if let healthError = await github.ensureGHReady() {
+                presentError(healthError, hasData: hasData)
                 finishRefresh()
                 return
             }
@@ -220,36 +212,28 @@ final class AppState {
             let limit = settings.maxPRs
             let includeAuthored = settings.showMyPRs
 
-            var reviews: [PullRequest]?
-            var authored: [PullRequest]?
-            var reviewError: AppError?
-            var authoredError: AppError?
+            // Fetch both queues concurrently — each is search + CI batches.
+            async let reviewResult = fetchQueue { try await github.fetchReviewQueue(limit: limit) }
+            async let authoredResult: QueueFetchResult = {
+                guard includeAuthored else { return .success([]) }
+                return await fetchQueue { try await github.fetchAuthoredQueue(limit: limit) }
+            }()
 
-            do {
-                reviews = try await github.fetchReviewQueue(limit: limit)
-            } catch let appError as AppError {
-                reviewError = appError
-            } catch {
-                reviewError = .unknown(error.localizedDescription)
-            }
+            let reviewOutcome = await reviewResult
+            let authoredOutcome = await authoredResult
 
-            if includeAuthored {
-                do {
-                    authored = try await github.fetchAuthoredQueue(limit: limit)
-                } catch let appError as AppError {
-                    authoredError = appError
-                } catch {
-                    authoredError = .unknown(error.localizedDescription)
-                }
-            } else {
-                authored = []
-            }
+            let reviews = reviewOutcome.value
+            let authored = authoredOutcome.value
+            let reviewError = reviewOutcome.error
+            let authoredError = authoredOutcome.error
 
             reviewQueueFailed = reviews == nil
             authoredQueueFailed = includeAuthored && authored == nil
 
             if reviews == nil && authored == nil {
                 let err = reviewError ?? authoredError ?? .unknown("Failed to fetch pull requests")
+                if case .ghNotAuthenticated = err { await github.invalidateHealthCache() }
+                if case .ghNotInstalled = err { await github.invalidateHealthCache() }
                 if case .rateLimited(let reset) = err {
                     rateLimitWaitUntil = reset
                 }
@@ -274,7 +258,8 @@ final class AppState {
                 authoredPullRequests = mergeCI(previous: authoredPullRequests, incoming: authored)
             }
 
-            let fetchedTeams = await github.fetchUserTeams()
+            // Teams already refreshed (at most every 30m) during queue fetch — no extra API call.
+            let fetchedTeams = await github.cachedTeams()
             if !fetchedTeams.isEmpty {
                 teams = fetchedTeams
                 for team in fetchedTeams {
@@ -323,6 +308,25 @@ final class AppState {
         }
 
         finishRefresh()
+    }
+
+    private struct QueueFetchResult {
+        var value: [PullRequest]?
+        var error: AppError?
+
+        static func success(_ prs: [PullRequest]) -> QueueFetchResult {
+            QueueFetchResult(value: prs, error: nil)
+        }
+    }
+
+    private func fetchQueue(_ body: () async throws -> [PullRequest]) async -> QueueFetchResult {
+        do {
+            return .success(try await body())
+        } catch let appError as AppError {
+            return QueueFetchResult(value: nil, error: appError)
+        } catch {
+            return QueueFetchResult(value: nil, error: .unknown(error.localizedDescription))
+        }
     }
 
     /// Keep last-known CI when a refresh couldn't load checks for that PR.

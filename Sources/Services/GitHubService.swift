@@ -4,6 +4,9 @@ actor GitHubService {
     private var userTeams: [GitHubTeam] = []
     private var lastTeamFetch: Date?
     private var viewerLogin: String?
+    /// Skip `gh version` / `gh auth status` on every poll once healthy.
+    private var lastHealthOK: Date?
+    private static let healthCacheTTL: TimeInterval = 10 * 60
 
     // Keep search lean — nested commits/statusCheckRollup on large
     // review-requested searches reliably 502s GitHub's gateway.
@@ -58,14 +61,23 @@ actor GitHubService {
 
     // MARK: - Health Checks
 
-    func checkGHInstalled() async -> Bool {
-        guard let result = try? await ProcessRunner.gh("version") else { return false }
-        return result.exitCode == 0
+    /// Cheap gate before polling. Cached so we don't spawn two `gh` processes every refresh.
+    func ensureGHReady() async -> AppError? {
+        if let last = lastHealthOK, Date().timeIntervalSince(last) < Self.healthCacheTTL {
+            return nil
+        }
+        guard let ver = try? await ProcessRunner.gh("version"), ver.exitCode == 0 else {
+            return .ghNotInstalled
+        }
+        guard let auth = try? await ProcessRunner.gh("auth", "status"), auth.exitCode == 0 else {
+            return .ghNotAuthenticated
+        }
+        lastHealthOK = Date()
+        return nil
     }
 
-    func checkGHAuthenticated() async -> Bool {
-        guard let result = try? await ProcessRunner.gh("auth", "status") else { return false }
-        return result.exitCode == 0
+    func invalidateHealthCache() {
+        lastHealthOK = nil
     }
 
     // MARK: - Fetch queues
@@ -86,8 +98,12 @@ actor GitHubService {
         )
     }
 
+    /// Cached teams (refreshed at most every 30 min during PR fetches).
+    func cachedTeams() -> [GitHubTeam] { userTeams }
+
     private func searchPullRequests(query: String, limit: Int, queue: PRQueue) async throws -> [PullRequest] {
         let clamped = min(max(limit, 1), 100)
+        async let teamsRefresh: Void = refreshTeamsIfNeeded()
         let result = try await graphql(
             query: Self.prSearchQuery,
             variables: [
@@ -95,71 +111,50 @@ actor GitHubService {
                 "limit": .int(clamped),
             ]
         )
+        _ = await teamsRefresh
 
         let decoded = try decodeGraphQL(result)
         if let login = decoded.data?.viewer?.login {
             viewerLogin = login
+            lastHealthOK = Date()
         }
 
-        await refreshTeamsIfNeeded()
-
         let nodes = decoded.data?.search?.nodes ?? []
-        var prs = nodes.compactMap { node -> PullRequest? in
+        let prs = nodes.compactMap { node -> PullRequest? in
             guard let node, node.number != nil else { return nil }
             return node.toPullRequest(queue: queue, viewerLogin: viewerLogin, userTeams: userTeams)
         }
-        prs = await attachCIStatus(to: prs)
-        return prs
+        return await attachCIStatus(to: prs)
     }
 
-    /// Fetch CI rollup in small GraphQL batches (avoids search-query 502s).
+    /// Fetch CI rollup in GraphQL batches (kept out of search to avoid gateway 502s).
     /// Failed batches mark PRs as `.unavailable` (not `.unknown` / "No checks").
     private func attachCIStatus(to prs: [PullRequest]) async -> [PullRequest] {
         guard !prs.isEmpty else { return prs }
-        let chunkSize = 10
+        let chunkSize = 25
+        let chunks: [[PullRequest]] = stride(from: 0, to: prs.count, by: chunkSize).map { start in
+            Array(prs[start..<min(start + chunkSize, prs.count)])
+        }
+
+        // Run a few CI batches at a time — each batch is a separate `gh` process.
         var statuses: [String: CIStatus] = [:]
+        statuses.reserveCapacity(prs.count)
+        let maxConcurrent = 3
+        var next = 0
+        while next < chunks.count {
+            let end = min(next + maxConcurrent, chunks.count)
+            let batch = Array(chunks[next..<end])
+            next = end
 
-        for start in stride(from: 0, to: prs.count, by: chunkSize) {
-            let chunk = Array(prs[start..<min(start + chunkSize, prs.count)])
-            var fields: [String] = []
-            for (i, pr) in chunk.enumerated() {
-                let owner = pr.repository.owner.replacingOccurrences(of: "\"", with: "")
-                let name = pr.repository.name.replacingOccurrences(of: "\"", with: "")
-                fields.append("""
-                p\(i): repository(owner: "\(owner)", name: "\(name)") {
-                  pullRequest(number: \(pr.number)) {
-                    commits(last: 1) {
-                      nodes {
-                        commit {
-                          statusCheckRollup { state }
-                        }
-                      }
+            await withTaskGroup(of: [String: CIStatus].self) { group in
+                for chunk in batch {
+                    group.addTask {
+                        await self.fetchCIStatusChunk(chunk)
                     }
-                  }
                 }
-                """)
-            }
-            let query = "query {\n" + fields.joined(separator: "\n") + "\n}"
-            guard let stdout = try? await graphql(query: query, variables: [:]),
-                  let data = try? JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any],
-                  let root = data["data"] as? [String: Any]
-            else {
-                for pr in chunk { statuses[pr.id] = .unavailable }
-                continue
-            }
-
-            for (i, pr) in chunk.enumerated() {
-                guard let repo = root["p\(i)"] as? [String: Any],
-                      let pull = repo["pullRequest"] as? [String: Any],
-                      let commits = pull["commits"] as? [String: Any],
-                      let nodes = commits["nodes"] as? [[String: Any]],
-                      let commit = nodes.last?["commit"] as? [String: Any]
-                else {
-                    statuses[pr.id] = .unavailable
-                    continue
+                for await partial in group {
+                    statuses.merge(partial) { _, new in new }
                 }
-                let state = (commit["statusCheckRollup"] as? [String: Any])?["state"] as? String
-                statuses[pr.id] = mapCIState(state)
             }
         }
 
@@ -168,6 +163,50 @@ actor GitHubService {
             copy.ciStatus = statuses[pr.id] ?? .unavailable
             return copy
         }
+    }
+
+    private func fetchCIStatusChunk(_ chunk: [PullRequest]) async -> [String: CIStatus] {
+        var fields: [String] = []
+        for (i, pr) in chunk.enumerated() {
+            let owner = pr.repository.owner.replacingOccurrences(of: "\"", with: "")
+            let name = pr.repository.name.replacingOccurrences(of: "\"", with: "")
+            fields.append("""
+            p\(i): repository(owner: "\(owner)", name: "\(name)") {
+              pullRequest(number: \(pr.number)) {
+                commits(last: 1) {
+                  nodes {
+                    commit {
+                      statusCheckRollup { state }
+                    }
+                  }
+                }
+              }
+            }
+            """)
+        }
+        let query = "query {\n" + fields.joined(separator: "\n") + "\n}"
+        guard let stdout = try? await graphql(query: query, variables: [:]),
+              let data = try? JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any],
+              let root = data["data"] as? [String: Any]
+        else {
+            return Dictionary(uniqueKeysWithValues: chunk.map { ($0.id, CIStatus.unavailable) })
+        }
+
+        var statuses: [String: CIStatus] = [:]
+        for (i, pr) in chunk.enumerated() {
+            guard let repo = root["p\(i)"] as? [String: Any],
+                  let pull = repo["pullRequest"] as? [String: Any],
+                  let commits = pull["commits"] as? [String: Any],
+                  let nodes = commits["nodes"] as? [[String: Any]],
+                  let commit = nodes.last?["commit"] as? [String: Any]
+            else {
+                statuses[pr.id] = .unavailable
+                continue
+            }
+            let state = (commit["statusCheckRollup"] as? [String: Any])?["state"] as? String
+            statuses[pr.id] = mapCIState(state)
+        }
+        return statuses
     }
 
     private func mapCIState(_ state: String?) -> CIStatus {
@@ -203,6 +242,7 @@ actor GitHubService {
 
             let err = classifyError(stderr: result.stderr, stdout: result.stdout)
             lastError = err
+            if case .ghNotAuthenticated = err { lastHealthOK = nil }
             if isTransient(err), attempt < attempts {
                 try? await Task.sleep(for: .milliseconds(400 * attempt))
                 continue
