@@ -3,9 +3,11 @@ import SwiftUI
 struct FilterChip: View {
     let title: String
     @Binding var isOn: Bool
+    var isEnabled: Bool = true
 
     var body: some View {
         Button {
+            guard isEnabled else { return }
             withAnimation(.easeInOut(duration: 0.12)) { isOn.toggle() }
         } label: {
             HStack(spacing: 4) {
@@ -28,5 +30,7 @@ struct FilterChip: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }

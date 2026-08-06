@@ -203,7 +203,12 @@ struct PopoverView: View {
                 FilterChip(title: "Bots", isOn: $appState.settings.showBotPRs)
                 FilterChip(title: "Teams", isOn: $appState.settings.showTeamReviews)
             }
-            FilterChip(title: "Review ready", isOn: $appState.settings.showOnlyNeedsReview)
+            FilterChip(
+                title: "Drafts",
+                isOn: showDraftsBinding,
+                isEnabled: !appState.settings.showOnlyNeedsReview
+            )
+            FilterChip(title: "Review Ready", isOn: $appState.settings.showOnlyNeedsReview)
 
             Spacer()
 
@@ -238,6 +243,25 @@ struct PopoverView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .frame(height: 32)
+    }
+
+    private var showDraftsBinding: Binding<Bool> {
+        Binding(
+            get: {
+                // Review Ready always excludes drafts; show chip as off while that filter is active.
+                if appState.settings.showOnlyNeedsReview { return false }
+                switch appState.settings.popoverTab {
+                case .toReview: return !appState.settings.excludeDraftsToReview
+                case .myPRs: return !appState.settings.excludeDraftsMyPRs
+                }
+            },
+            set: { show in
+                switch appState.settings.popoverTab {
+                case .toReview: appState.settings.excludeDraftsToReview = !show
+                case .myPRs: appState.settings.excludeDraftsMyPRs = !show
+                }
+            }
+        )
     }
 
     // MARK: - Content
