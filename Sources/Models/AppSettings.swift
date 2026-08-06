@@ -1,7 +1,8 @@
 import Foundation
 
 struct AppSettings: Codable, Sendable, Equatable {
-    var refreshIntervalMinutes: Int = 5
+    /// Poll cadence in seconds. Default 60; 30 is safe for personal use.
+    var refreshIntervalSeconds: Int = 60
     var maxPRs: Int = 50
     var launchAtLogin: Bool = false
     var showNotifications: Bool = true
@@ -28,7 +29,7 @@ struct AppSettings: Codable, Sendable, Equatable {
     var snoozedPRs: [String: Date] = [:]
 
     var refreshInterval: TimeInterval {
-        TimeInterval(refreshIntervalMinutes * 60)
+        TimeInterval(max(30, refreshIntervalSeconds))
     }
 
     var repoIncludeList: [String] {
@@ -47,7 +48,7 @@ struct AppSettings: Codable, Sendable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case refreshIntervalMinutes, maxPRs, launchAtLogin
+        case refreshIntervalSeconds, refreshIntervalMinutes, maxPRs, launchAtLogin
         case showNotifications, notifyMyPRReviews, notifyMyPRMerged, notifyMyPRCIGreen
         case customSoundPath
         case excludeDrafts // legacy single toggle
@@ -62,7 +63,13 @@ struct AppSettings: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppSettings()
 
-        refreshIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .refreshIntervalMinutes) ?? defaults.refreshIntervalMinutes
+        if let seconds = try c.decodeIfPresent(Int.self, forKey: .refreshIntervalSeconds) {
+            refreshIntervalSeconds = max(30, seconds)
+        } else if let minutes = try c.decodeIfPresent(Int.self, forKey: .refreshIntervalMinutes) {
+            refreshIntervalSeconds = max(30, minutes * 60)
+        } else {
+            refreshIntervalSeconds = defaults.refreshIntervalSeconds
+        }
         maxPRs = try c.decodeIfPresent(Int.self, forKey: .maxPRs) ?? defaults.maxPRs
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
         showNotifications = try c.decodeIfPresent(Bool.self, forKey: .showNotifications) ?? defaults.showNotifications
@@ -93,7 +100,7 @@ struct AppSettings: Codable, Sendable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(refreshIntervalMinutes, forKey: .refreshIntervalMinutes)
+        try c.encode(refreshIntervalSeconds, forKey: .refreshIntervalSeconds)
         try c.encode(maxPRs, forKey: .maxPRs)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
         try c.encode(showNotifications, forKey: .showNotifications)

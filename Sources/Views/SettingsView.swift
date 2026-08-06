@@ -11,7 +11,7 @@ struct GeneralSettingsView: View {
     @State private var showingSoundPicker = false
     @State private var previewSound: NSSound?
 
-    private let intervalOptions = [1, 2, 5, 10, 15]
+    private let intervalOptions = [30, 60, 120, 300, 600, 900]
 
     private var soundName: String {
         let path = appState.settings.customSoundPath
@@ -21,9 +21,9 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("Refresh") {
-                Picker("Refresh interval", selection: $appState.settings.refreshIntervalMinutes) {
-                    ForEach(intervalOptions, id: \.self) { minutes in
-                        Text("\(minutes) min").tag(minutes)
+                Picker("Refresh interval", selection: $appState.settings.refreshIntervalSeconds) {
+                    ForEach(intervalOptions, id: \.self) { seconds in
+                        Text(Self.intervalLabel(seconds)).tag(seconds)
                     }
                 }
 
@@ -108,7 +108,7 @@ struct GeneralSettingsView: View {
                 appState.importCustomSound(from: url)
             }
         }
-        .onChange(of: appState.settings.refreshIntervalMinutes) { _, _ in
+        .onChange(of: appState.settings.refreshIntervalSeconds) { _, _ in
             appState.restartPolling()
         }
         .onChange(of: appState.settings.showMyPRs) { _, enabled in
@@ -125,6 +125,12 @@ struct GeneralSettingsView: View {
         sound.volume = 1.0
         previewSound = sound
         sound.play()
+    }
+
+    private static func intervalLabel(_ seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds) sec" }
+        let minutes = seconds / 60
+        return minutes == 1 ? "1 min" : "\(minutes) min"
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {
