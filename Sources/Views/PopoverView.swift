@@ -5,7 +5,6 @@ struct PopoverView: View {
     @Bindable var appState: AppState
     var onOpenSettings: () -> Void
     @State private var collapsedSections: Set<String> = []
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +33,6 @@ struct PopoverView: View {
     }
 
     private func resignSearchFocus() {
-        searchFocused = false
         // Only resign within the popover window — don't promote it to key.
         guard let window = NSApp.windows.first(where: {
             $0.isVisible && String(describing: type(of: $0)).contains("Popover")
@@ -61,13 +59,7 @@ struct PopoverView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .medium))
-                    .rotationEffect(.degrees(appState.isRefreshing ? 360 : 0))
-                    .animation(
-                        appState.isRefreshing
-                            ? .linear(duration: 0.9).repeatForever(autoreverses: false)
-                            : .default,
-                        value: appState.isRefreshing
-                    )
+                    .symbolEffect(.rotate, options: .repeating.speed(1.2), isActive: appState.isRefreshing)
             }
             .buttonStyle(.borderless)
             .disabled(appState.isRefreshing)
@@ -174,8 +166,7 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             ClickToFocusTextField(
                 text: $appState.searchQuery,
-                placeholder: "Search title, repo, author…",
-                isFocused: $searchFocused
+                placeholder: "Search title, repo, author…"
             )
             .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 18)
             Button {
@@ -463,7 +454,6 @@ struct PopoverView: View {
 private struct ClickToFocusTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
-    var isFocused: FocusState<Bool>.Binding
 
     func makeNSView(context: Context) -> LazyFocusTextField {
         let field = LazyFocusTextField()
@@ -480,17 +470,15 @@ private struct ClickToFocusTextField: NSViewRepresentable {
 
     func updateNSView(_ field: LazyFocusTextField, context: Context) {
         context.coordinator.parent = self
-        if field.stringValue != text {
-            field.stringValue = text
-        }
         field.placeholderString = placeholder
-        if !isFocused.wrappedValue {
-            field.refuseFocusUntilClick = true
-            if field.window?.firstResponder === field
-                || field.window?.firstResponder === field.currentEditor()
-            {
-                field.window?.makeFirstResponder(nil)
-            }
+        // Don't touch first responder here — list/filter re-renders must not steal the caret.
+        // Only sync text when it changed externally (e.g. clear button) or while not editing.
+        guard field.stringValue != text else { return }
+        let hadEditor = field.currentEditor() != nil
+        field.stringValue = text
+        if hadEditor, let editor = field.currentEditor() {
+            let end = editor.string.count
+            editor.selectedRange = NSRange(location: end, length: 0)
         }
     }
 
@@ -509,12 +497,7 @@ private struct ClickToFocusTextField: NSViewRepresentable {
             parent.text = field.stringValue
         }
 
-        func controlTextDidBeginEditing(_ obj: Notification) {
-            parent.isFocused.wrappedValue = true
-        }
-
         func controlTextDidEndEditing(_ obj: Notification) {
-            parent.isFocused.wrappedValue = false
             (obj.object as? LazyFocusTextField)?.refuseFocusUntilClick = true
         }
     }
