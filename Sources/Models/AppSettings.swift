@@ -19,6 +19,8 @@ struct AppSettings: Codable, Sendable, Equatable {
     var orgIncludes: String = ""
     var showBotPRs: Bool = true
     var showTeamReviews: Bool = true
+    /// CI green and still waiting on review (both queues).
+    var showOnlyNeedsReview: Bool = false
     var showMyPRs: Bool = true
     var sortOption: PRSortOption = .updatedNewest
     var popoverTab: PopoverTab = .toReview
@@ -52,7 +54,7 @@ struct AppSettings: Codable, Sendable, Equatable {
         case excludeDraftsToReview, excludeDraftsMyPRs
         case botAllowList, teamFilters
         case repoIncludes, repoExcludes, orgIncludes
-        case showBotPRs, showTeamReviews, showMyPRs
+        case showBotPRs, showTeamReviews, showOnlyNeedsReview, showMyPRs
         case sortOption, popoverTab, snoozedPRs
     }
 
@@ -82,6 +84,7 @@ struct AppSettings: Codable, Sendable, Equatable {
         orgIncludes = try c.decodeIfPresent(String.self, forKey: .orgIncludes) ?? defaults.orgIncludes
         showBotPRs = try c.decodeIfPresent(Bool.self, forKey: .showBotPRs) ?? defaults.showBotPRs
         showTeamReviews = try c.decodeIfPresent(Bool.self, forKey: .showTeamReviews) ?? defaults.showTeamReviews
+        showOnlyNeedsReview = try c.decodeIfPresent(Bool.self, forKey: .showOnlyNeedsReview) ?? defaults.showOnlyNeedsReview
         showMyPRs = try c.decodeIfPresent(Bool.self, forKey: .showMyPRs) ?? defaults.showMyPRs
         sortOption = try c.decodeIfPresent(PRSortOption.self, forKey: .sortOption) ?? defaults.sortOption
         popoverTab = try c.decodeIfPresent(PopoverTab.self, forKey: .popoverTab) ?? defaults.popoverTab
@@ -107,6 +110,7 @@ struct AppSettings: Codable, Sendable, Equatable {
         try c.encode(orgIncludes, forKey: .orgIncludes)
         try c.encode(showBotPRs, forKey: .showBotPRs)
         try c.encode(showTeamReviews, forKey: .showTeamReviews)
+        try c.encode(showOnlyNeedsReview, forKey: .showOnlyNeedsReview)
         try c.encode(showMyPRs, forKey: .showMyPRs)
         try c.encode(sortOption, forKey: .sortOption)
         try c.encode(popoverTab, forKey: .popoverTab)

@@ -26,6 +26,13 @@ struct PullRequest: Identifiable, Equatable, Sendable {
 
     var authorIsBot: Bool { author.login.hasSuffix("[bot]") || author.isBot }
 
+    /// Non-draft, CI green, overall decision still waiting on review.
+    var isAwaitingReviewWithGreenCI: Bool {
+        !isDraft
+            && ciStatus == .success
+            && (reviewDecision == .none || reviewDecision == .reviewRequired)
+    }
+
     var authorAvatarURL: URL? {
         if let url = author.avatarUrl, let parsed = URL(string: url) { return parsed }
         guard !authorIsBot else { return nil }

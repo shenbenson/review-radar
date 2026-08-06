@@ -66,6 +66,7 @@ final class AppState {
             if let key = pr.teamFilterKey, !settings.isTeamFilterEnabled(key) {
                 if !pr.isDirectReviewRequested { return false }
             }
+            if settings.showOnlyNeedsReview && !pr.isAwaitingReviewWithGreenCI { return false }
             return true
         }
         let common = applyCommonFilters(base)
@@ -75,6 +76,7 @@ final class AppState {
     private func authoredPRsMatching(applySearch: Bool) -> [PullRequest] {
         let base = authoredPullRequests.filter { pr in
             if settings.excludeDraftsMyPRs && pr.isDraft { return false }
+            if settings.showOnlyNeedsReview && !pr.isAwaitingReviewWithGreenCI { return false }
             return true
         }
         let common = applyCommonFilters(base)

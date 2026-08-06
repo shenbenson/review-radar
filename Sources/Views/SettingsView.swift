@@ -154,6 +154,7 @@ struct FiltersSettingsView: View {
                     get: { !appState.settings.showBotPRs },
                     set: { appState.settings.showBotPRs = !$0 }
                 ))
+                Toggle("Only review-ready (CI green, awaiting review)", isOn: $appState.settings.showOnlyNeedsReview)
             }
 
             if !appState.discoveredBots.isEmpty {

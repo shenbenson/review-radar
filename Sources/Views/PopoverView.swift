@@ -202,9 +202,8 @@ struct PopoverView: View {
             if appState.settings.popoverTab == .toReview {
                 FilterChip(title: "Bots", isOn: $appState.settings.showBotPRs)
                 FilterChip(title: "Teams", isOn: $appState.settings.showTeamReviews)
-            } else {
-                FilterChip(title: "Bots", isOn: $appState.settings.showBotPRs)
             }
+            FilterChip(title: "Review ready", isOn: $appState.settings.showOnlyNeedsReview)
 
             Spacer()
 
